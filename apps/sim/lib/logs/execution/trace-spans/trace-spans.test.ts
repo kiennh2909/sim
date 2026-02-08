@@ -1,12 +1,10 @@
-import { describe, expect, test } from 'vitest'
-import {
-  buildTraceSpans,
-  stripCustomToolPrefix,
-} from '@/lib/logs/execution/trace-spans/trace-spans'
+import { describe, expect, it } from 'vitest'
+import { buildTraceSpans } from '@/lib/logs/execution/trace-spans/trace-spans'
+import { stripCustomToolPrefix } from '@/executor/constants'
 import type { ExecutionResult } from '@/executor/types'
 
 describe('buildTraceSpans', () => {
-  test('should extract sequential segments from timeSegments data', () => {
+  it.concurrent('extracts sequential segments from timeSegments data', () => {
     const mockExecutionResult: ExecutionResult = {
       success: true,
       output: { content: 'Final output' },
@@ -23,7 +21,7 @@ describe('buildTraceSpans', () => {
           output: {
             content: 'Agent response',
             model: 'gpt-4o',
-            tokens: { prompt: 10, completion: 20, total: 30 },
+            tokens: { input: 10, output: 20, total: 30 },
             providerTiming: {
               duration: 8000,
               startTime: '2024-01-01T10:00:00.000Z',
@@ -121,7 +119,7 @@ describe('buildTraceSpans', () => {
     expect(segments[3].status).toBe('success')
   })
 
-  test('should fallback to toolCalls extraction when timeSegments not available', () => {
+  it.concurrent('falls back to toolCalls extraction when timeSegments not available', () => {
     const mockExecutionResult: ExecutionResult = {
       success: true,
       output: { content: 'Final output' },
@@ -138,7 +136,7 @@ describe('buildTraceSpans', () => {
           output: {
             content: 'Agent response',
             model: 'gpt-4o',
-            tokens: { prompt: 10, completion: 20, total: 30 },
+            tokens: { input: 10, output: 20, total: 30 },
             providerTiming: {
               duration: 4000,
               startTime: '2024-01-01T10:00:00.500Z',
@@ -196,60 +194,63 @@ describe('buildTraceSpans', () => {
     expect(secondToolCall.output).toEqual({ status: 200, data: 'response' })
   })
 
-  test('should extract tool calls from agent block output with direct toolCalls array format (fallback)', () => {
-    const mockExecutionResult: ExecutionResult = {
-      success: true,
-      output: { content: 'Final output' },
-      logs: [
-        {
-          blockId: 'agent-2',
-          blockName: 'Test Agent 2',
-          blockType: 'agent',
-          startedAt: '2024-01-01T10:00:00.000Z',
-          endedAt: '2024-01-01T10:00:03.000Z',
-          durationMs: 3000,
-          success: true,
-          input: { userPrompt: 'Test prompt' },
-          output: {
-            content: 'Agent response',
-            model: 'gpt-4o',
-            providerTiming: {
-              duration: 2500,
-              startTime: '2024-01-01T10:00:00.250Z',
-              endTime: '2024-01-01T10:00:02.750Z',
-              // No timeSegments - should fallback to toolCalls
-            },
-            toolCalls: [
-              {
-                name: 'serper_search',
-                arguments: { query: 'test search' },
-                result: { results: ['result1', 'result2'] },
-                duration: 1500,
-                startTime: '2024-01-01T10:00:00.500Z',
-                endTime: '2024-01-01T10:00:02.000Z',
+  it.concurrent(
+    'extracts tool calls from agent block output with direct toolCalls array format',
+    () => {
+      const mockExecutionResult: ExecutionResult = {
+        success: true,
+        output: { content: 'Final output' },
+        logs: [
+          {
+            blockId: 'agent-2',
+            blockName: 'Test Agent 2',
+            blockType: 'agent',
+            startedAt: '2024-01-01T10:00:00.000Z',
+            endedAt: '2024-01-01T10:00:03.000Z',
+            durationMs: 3000,
+            success: true,
+            input: { userPrompt: 'Test prompt' },
+            output: {
+              content: 'Agent response',
+              model: 'gpt-4o',
+              providerTiming: {
+                duration: 2500,
+                startTime: '2024-01-01T10:00:00.250Z',
+                endTime: '2024-01-01T10:00:02.750Z',
+                // No timeSegments - should fallback to toolCalls
               },
-            ],
+              toolCalls: [
+                {
+                  name: 'serper_search',
+                  arguments: { query: 'test search' },
+                  result: { results: ['result1', 'result2'] },
+                  duration: 1500,
+                  startTime: '2024-01-01T10:00:00.500Z',
+                  endTime: '2024-01-01T10:00:02.000Z',
+                },
+              ],
+            },
           },
-        },
-      ],
+        ],
+      }
+
+      const { traceSpans } = buildTraceSpans(mockExecutionResult)
+
+      expect(traceSpans).toHaveLength(1)
+      const agentSpan = traceSpans[0]
+      expect(agentSpan.toolCalls).toBeDefined()
+      expect(agentSpan.toolCalls).toHaveLength(1)
+
+      const toolCall = agentSpan.toolCalls![0]
+      expect(toolCall.name).toBe('serper_search')
+      expect(toolCall.duration).toBe(1500)
+      expect(toolCall.status).toBe('success')
+      expect(toolCall.input).toEqual({ query: 'test search' })
+      expect(toolCall.output).toEqual({ results: ['result1', 'result2'] })
     }
+  )
 
-    const { traceSpans } = buildTraceSpans(mockExecutionResult)
-
-    expect(traceSpans).toHaveLength(1)
-    const agentSpan = traceSpans[0]
-    expect(agentSpan.toolCalls).toBeDefined()
-    expect(agentSpan.toolCalls).toHaveLength(1)
-
-    const toolCall = agentSpan.toolCalls![0]
-    expect(toolCall.name).toBe('serper_search')
-    expect(toolCall.duration).toBe(1500)
-    expect(toolCall.status).toBe('success')
-    expect(toolCall.input).toEqual({ query: 'test search' })
-    expect(toolCall.output).toEqual({ results: ['result1', 'result2'] })
-  })
-
-  test('should extract tool calls from streaming response with executionData format (fallback)', () => {
+  it.concurrent('extracts tool calls from streaming response with executionData format', () => {
     const mockExecutionResult: ExecutionResult = {
       success: true,
       output: { content: 'Final output' },
@@ -303,7 +304,7 @@ describe('buildTraceSpans', () => {
     expect(toolCall.output).toEqual({ analysis: 'completed' })
   })
 
-  test('should handle tool calls with errors in timeSegments', () => {
+  it.concurrent('handles tool calls with errors in timeSegments', () => {
     const mockExecutionResult: ExecutionResult = {
       success: true,
       output: { content: 'Final output' },
@@ -382,7 +383,7 @@ describe('buildTraceSpans', () => {
     expect(toolSegment.output).toEqual({ error: 'Tool execution failed' })
   })
 
-  test('should handle blocks without tool calls', () => {
+  it.concurrent('handles blocks without tool calls', () => {
     const mockExecutionResult: ExecutionResult = {
       success: true,
       output: { content: 'Final output' },
@@ -409,7 +410,7 @@ describe('buildTraceSpans', () => {
     expect(textSpan.toolCalls).toBeUndefined()
   })
 
-  test('should handle complex multi-iteration agent execution with sequential segments', () => {
+  it.concurrent('handles complex multi-iteration agent execution with sequential segments', () => {
     // This test simulates a real agent execution with multiple tool calls and model iterations
     const mockExecutionResult: ExecutionResult = {
       success: true,
@@ -427,8 +428,8 @@ describe('buildTraceSpans', () => {
           output: {
             content: 'Based on my research using multiple sources...',
             model: 'gpt-4o',
-            tokens: { prompt: 50, completion: 200, total: 250 },
-            cost: { total: 0.0025, prompt: 0.001, completion: 0.0015 },
+            tokens: { input: 50, output: 200, total: 250 },
+            cost: { total: 0.0025, input: 0.001, output: 0.0015 },
             providerTiming: {
               duration: 15000,
               startTime: '2024-01-01T10:00:00.000Z',
@@ -583,7 +584,7 @@ describe('buildTraceSpans', () => {
     expect(agentSpan.toolCalls).toBeUndefined()
   })
 
-  test('should flatten nested child workflow trace spans recursively', () => {
+  it.concurrent('flattens nested child workflow trace spans recursively', () => {
     const nestedChildSpan = {
       id: 'nested-workflow-span',
       name: 'Nested Workflow Block',
@@ -687,7 +688,7 @@ describe('buildTraceSpans', () => {
     expect(syntheticWrappers).toHaveLength(0)
   })
 
-  test('should handle nested child workflow errors with proper hierarchy', () => {
+  it.concurrent('handles nested child workflow errors with proper hierarchy', () => {
     const functionErrorSpan = {
       id: 'function-error-span',
       name: 'Function 1',
@@ -771,15 +772,231 @@ describe('buildTraceSpans', () => {
     expect(functionSpan?.status).toBe('error')
     expect((functionSpan?.output as { error?: string })?.error).toContain('Syntax Error')
   })
+
+  it.concurrent('removes childTraceSpans from output after integrating them as children', () => {
+    const mockExecutionResult: ExecutionResult = {
+      success: true,
+      output: { result: 'parent output' },
+      logs: [
+        {
+          blockId: 'workflow-1',
+          blockName: 'Parent Workflow',
+          blockType: 'workflow',
+          startedAt: '2024-01-01T10:00:00.000Z',
+          endedAt: '2024-01-01T10:00:05.000Z',
+          durationMs: 5000,
+          success: true,
+          output: {
+            success: true,
+            childWorkflowName: 'Child Workflow',
+            result: { data: 'some result' },
+            childTraceSpans: [
+              {
+                id: 'child-block-1',
+                name: 'Supabase Query',
+                type: 'supabase',
+                blockId: 'supabase-1',
+                duration: 2000,
+                startTime: '2024-01-01T10:00:01.000Z',
+                endTime: '2024-01-01T10:00:03.000Z',
+                status: 'success' as const,
+                output: {
+                  records: [
+                    { id: 1, logo: 'data:image/png;base64,VeryLargeBase64StringHere...' },
+                    { id: 2, logo: 'data:image/png;base64,AnotherLargeBase64StringHere...' },
+                  ],
+                },
+              },
+              {
+                id: 'child-block-2',
+                name: 'Transform Data',
+                type: 'function',
+                blockId: 'function-1',
+                duration: 500,
+                startTime: '2024-01-01T10:00:03.000Z',
+                endTime: '2024-01-01T10:00:03.500Z',
+                status: 'success' as const,
+                output: { transformed: true },
+              },
+            ],
+          },
+        },
+      ],
+    }
+
+    const { traceSpans } = buildTraceSpans(mockExecutionResult)
+
+    expect(traceSpans).toHaveLength(1)
+    const workflowSpan = traceSpans[0]
+    expect(workflowSpan.type).toBe('workflow')
+
+    expect(workflowSpan.children).toBeDefined()
+    expect(workflowSpan.children).toHaveLength(2)
+    expect(workflowSpan.children?.[0].name).toBe('Supabase Query')
+    expect(workflowSpan.children?.[1].name).toBe('Transform Data')
+
+    expect(workflowSpan.output).toBeDefined()
+    expect((workflowSpan.output as { childTraceSpans?: unknown }).childTraceSpans).toBeUndefined()
+
+    expect((workflowSpan.output as { success?: boolean }).success).toBe(true)
+    expect((workflowSpan.output as { childWorkflowName?: string }).childWorkflowName).toBe(
+      'Child Workflow'
+    )
+    expect((workflowSpan.output as { result?: { data: string } }).result).toEqual({
+      data: 'some result',
+    })
+  })
+
+  it.concurrent('matches multiple tool calls with same name by sequential order', () => {
+    // This test verifies that when an agent makes multiple calls to the same tool
+    // (e.g., search_tool called 3 times with different queries), each tool segment
+    // is matched to the correct tool call by their sequential order, not just by name.
+    const mockExecutionResult: ExecutionResult = {
+      success: true,
+      output: { content: 'Final output with multiple searches' },
+      logs: [
+        {
+          blockId: 'agent-multi-search',
+          blockName: 'Multi-Search Agent',
+          blockType: 'agent',
+          startedAt: '2024-01-01T10:00:00.000Z',
+          endedAt: '2024-01-01T10:00:10.000Z',
+          durationMs: 10000,
+          success: true,
+          input: { userPrompt: 'Search for multiple topics' },
+          output: {
+            content: 'Results from multiple searches',
+            model: 'gpt-4o',
+            tokens: { input: 50, output: 100, total: 150 },
+            providerTiming: {
+              duration: 10000,
+              startTime: '2024-01-01T10:00:00.000Z',
+              endTime: '2024-01-01T10:00:10.000Z',
+              timeSegments: [
+                {
+                  type: 'model',
+                  name: 'Initial response',
+                  startTime: 1704103200000, // 2024-01-01T10:00:00.000Z
+                  endTime: 1704103201000,
+                  duration: 1000,
+                },
+                {
+                  type: 'tool',
+                  name: 'search_tool',
+                  startTime: 1704103201000, // 2024-01-01T10:00:01.000Z
+                  endTime: 1704103202000,
+                  duration: 1000,
+                },
+                {
+                  type: 'model',
+                  name: 'Model response (iteration 1)',
+                  startTime: 1704103202000,
+                  endTime: 1704103203000,
+                  duration: 1000,
+                },
+                {
+                  type: 'tool',
+                  name: 'search_tool',
+                  startTime: 1704103203000, // 2024-01-01T10:00:03.000Z
+                  endTime: 1704103204500,
+                  duration: 1500,
+                },
+                {
+                  type: 'model',
+                  name: 'Model response (iteration 2)',
+                  startTime: 1704103204500,
+                  endTime: 1704103206000,
+                  duration: 1500,
+                },
+                {
+                  type: 'tool',
+                  name: 'search_tool',
+                  startTime: 1704103206000, // 2024-01-01T10:00:06.000Z
+                  endTime: 1704103208000,
+                  duration: 2000,
+                },
+                {
+                  type: 'model',
+                  name: 'Model response (iteration 3)',
+                  startTime: 1704103208000,
+                  endTime: 1704103210000,
+                  duration: 2000,
+                },
+              ],
+            },
+            toolCalls: {
+              list: [
+                {
+                  name: 'search_tool',
+                  arguments: { query: 'first query' },
+                  result: { results: ['first result'] },
+                  duration: 1000,
+                  startTime: '2024-01-01T10:00:01.000Z', // Matches first segment
+                  endTime: '2024-01-01T10:00:02.000Z',
+                },
+                {
+                  name: 'search_tool',
+                  arguments: { query: 'second query' },
+                  result: { results: ['second result'] },
+                  duration: 1500,
+                  startTime: '2024-01-01T10:00:03.000Z', // Matches second segment
+                  endTime: '2024-01-01T10:00:04.500Z',
+                },
+                {
+                  name: 'search_tool',
+                  arguments: { query: 'third query' },
+                  result: { results: ['third result'] },
+                  duration: 2000,
+                  startTime: '2024-01-01T10:00:06.000Z', // Matches third segment
+                  endTime: '2024-01-01T10:00:08.000Z',
+                },
+              ],
+              count: 3,
+            },
+          },
+        },
+      ],
+    }
+
+    const { traceSpans } = buildTraceSpans(mockExecutionResult)
+
+    expect(traceSpans).toHaveLength(1)
+    const agentSpan = traceSpans[0]
+    expect(agentSpan.children).toBeDefined()
+    expect(agentSpan.children).toHaveLength(7)
+
+    const segments = agentSpan.children!
+
+    // First search_tool call should have "first query"
+    const firstToolSegment = segments[1]
+    expect(firstToolSegment.name).toBe('search_tool')
+    expect(firstToolSegment.type).toBe('tool')
+    expect(firstToolSegment.input).toEqual({ query: 'first query' })
+    expect(firstToolSegment.output).toEqual({ results: ['first result'] })
+
+    // Second search_tool call should have "second query"
+    const secondToolSegment = segments[3]
+    expect(secondToolSegment.name).toBe('search_tool')
+    expect(secondToolSegment.type).toBe('tool')
+    expect(secondToolSegment.input).toEqual({ query: 'second query' })
+    expect(secondToolSegment.output).toEqual({ results: ['second result'] })
+
+    // Third search_tool call should have "third query"
+    const thirdToolSegment = segments[5]
+    expect(thirdToolSegment.name).toBe('search_tool')
+    expect(thirdToolSegment.type).toBe('tool')
+    expect(thirdToolSegment.input).toEqual({ query: 'third query' })
+    expect(thirdToolSegment.output).toEqual({ results: ['third result'] })
+  })
 })
 
 describe('stripCustomToolPrefix', () => {
-  test('should strip custom_ prefix from tool names', () => {
+  it.concurrent('strips custom_ prefix from tool names', () => {
     expect(stripCustomToolPrefix('custom_test_tool')).toBe('test_tool')
     expect(stripCustomToolPrefix('custom_analysis')).toBe('analysis')
   })
 
-  test('should leave non-custom tool names unchanged', () => {
+  it.concurrent('leaves non-custom tool names unchanged', () => {
     expect(stripCustomToolPrefix('http_request')).toBe('http_request')
     expect(stripCustomToolPrefix('serper_search')).toBe('serper_search')
     expect(stripCustomToolPrefix('regular_tool')).toBe('regular_tool')

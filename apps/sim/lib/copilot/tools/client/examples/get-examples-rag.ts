@@ -23,6 +23,27 @@ export class GetExamplesRagClientTool extends BaseClientTool {
       [ClientToolCallState.rejected]: { text: 'Skipped getting examples', icon: MinusCircle },
     },
     interrupt: undefined,
+    getDynamicText: (params, state) => {
+      if (params?.query && typeof params.query === 'string') {
+        const query = params.query
+
+        switch (state) {
+          case ClientToolCallState.success:
+            return `Found examples for ${query}`
+          case ClientToolCallState.executing:
+          case ClientToolCallState.generating:
+          case ClientToolCallState.pending:
+            return `Searching examples for ${query}`
+          case ClientToolCallState.error:
+            return `Failed to find examples for ${query}`
+          case ClientToolCallState.aborted:
+            return `Aborted searching examples for ${query}`
+          case ClientToolCallState.rejected:
+            return `Skipped searching examples for ${query}`
+        }
+      }
+      return undefined
+    },
   }
 
   async execute(): Promise<void> {

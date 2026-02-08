@@ -1,4 +1,5 @@
-import { createLogger } from '@/lib/logs/console/logger'
+import { createLogger } from '@sim/logger'
+import type { CopilotMode, CopilotModelId, CopilotTransportMode } from '@/lib/copilot/models'
 
 const logger = createLogger('CopilotAPI')
 
@@ -24,6 +25,14 @@ export interface CopilotMessage {
 }
 
 /**
+ * Chat config stored in database
+ */
+export interface CopilotChatConfig {
+  mode?: CopilotMode
+  model?: CopilotModelId
+}
+
+/**
  * Chat interface for copilot conversations
  */
 export interface CopilotChat {
@@ -32,7 +41,8 @@ export interface CopilotChat {
   model: string
   messages: CopilotMessage[]
   messageCount: number
-  previewYaml: string | null
+  planArtifact: string | null
+  config: CopilotChatConfig | null
   createdAt: Date
   updatedAt: Date
 }
@@ -56,18 +66,8 @@ export interface SendMessageRequest {
   userMessageId?: string // ID from frontend for the user message
   chatId?: string
   workflowId?: string
-  mode?: 'ask' | 'agent'
-  model?:
-    | 'gpt-5-fast'
-    | 'gpt-5'
-    | 'gpt-5-medium'
-    | 'gpt-5-high'
-    | 'gpt-4o'
-    | 'gpt-4.1'
-    | 'o3'
-    | 'claude-4-sonnet'
-    | 'claude-4.5-sonnet'
-    | 'claude-4.1-opus'
+  mode?: CopilotMode | CopilotTransportMode
+  model?: CopilotModelId
   prefetch?: boolean
   createNewChat?: boolean
   stream?: boolean
@@ -81,6 +81,7 @@ export interface SendMessageRequest {
     workflowId?: string
     executionId?: string
   }>
+  commands?: string[]
 }
 
 /**

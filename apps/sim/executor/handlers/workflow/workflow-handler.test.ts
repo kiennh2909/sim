@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest'
-import { BlockType } from '@/executor/consts'
+import { BlockType } from '@/executor/constants'
 import { WorkflowBlockHandler } from '@/executor/handlers/workflow/workflow-handler'
 import type { ExecutionContext } from '@/executor/types'
 import type { SerializedBlock } from '@/serializer/types'
@@ -44,8 +44,7 @@ describe('WorkflowBlockHandler', () => {
       metadata: { duration: 0 },
       environmentVariables: {},
       decisions: { router: new Map(), condition: new Map() },
-      loopIterations: new Map(),
-      loopItems: new Map(),
+      loopExecutions: new Map(),
       executedBlocks: new Set(),
       activeExecutionPath: new Set(),
       completedLoops: new Set(),
@@ -103,7 +102,7 @@ describe('WorkflowBlockHandler', () => {
     it('should throw error when no workflowId is provided', async () => {
       const inputs = {}
 
-      await expect(handler.execute(mockBlock, inputs, mockContext)).rejects.toThrow(
+      await expect(handler.execute(mockContext, mockBlock, inputs)).rejects.toThrow(
         'No workflow selected for execution'
       )
     })
@@ -118,8 +117,8 @@ describe('WorkflowBlockHandler', () => {
           'level1_sub_level2_sub_level3_sub_level4_sub_level5_sub_level6_sub_level7_sub_level8_sub_level9_sub_level10_sub_level11',
       }
 
-      await expect(handler.execute(mockBlock, inputs, deepContext)).rejects.toThrow(
-        'Error in child workflow "child-workflow-id": Maximum workflow nesting depth of 10 exceeded'
+      await expect(handler.execute(deepContext, mockBlock, inputs)).rejects.toThrow(
+        '"child-workflow-id" failed: Maximum workflow nesting depth of 10 exceeded'
       )
     })
 
@@ -132,8 +131,8 @@ describe('WorkflowBlockHandler', () => {
         statusText: 'Not Found',
       })
 
-      await expect(handler.execute(mockBlock, inputs, mockContext)).rejects.toThrow(
-        'Error in child workflow "non-existent-workflow": Child workflow non-existent-workflow not found'
+      await expect(handler.execute(mockContext, mockBlock, inputs)).rejects.toThrow(
+        '"non-existent-workflow" failed: Child workflow non-existent-workflow not found'
       )
     })
 
@@ -142,8 +141,8 @@ describe('WorkflowBlockHandler', () => {
 
       mockFetch.mockRejectedValueOnce(new Error('Network error'))
 
-      await expect(handler.execute(mockBlock, inputs, mockContext)).rejects.toThrow(
-        'Error in child workflow "child-workflow-id": Network error'
+      await expect(handler.execute(mockContext, mockBlock, inputs)).rejects.toThrow(
+        '"child-workflow-id" failed: Network error'
       )
     })
   })
@@ -199,30 +198,28 @@ describe('WorkflowBlockHandler', () => {
 
       expect(result).toEqual({
         success: true,
+        childWorkflowId: 'child-id',
         childWorkflowName: 'Child Workflow',
         result: { data: 'test result' },
         childTraceSpans: [],
       })
     })
 
-    it('should map failed child output correctly', () => {
+    it('should throw error for failed child output so BlockExecutor can check error port', () => {
       const childResult = {
         success: false,
         error: 'Child workflow failed',
       }
 
-      const result = (handler as any).mapChildOutputToParent(
-        childResult,
-        'child-id',
-        'Child Workflow',
-        100
-      )
+      expect(() =>
+        (handler as any).mapChildOutputToParent(childResult, 'child-id', 'Child Workflow', 100)
+      ).toThrow('"Child Workflow" failed: Child workflow failed')
 
-      expect(result).toEqual({
-        success: false,
-        childWorkflowName: 'Child Workflow',
-        error: 'Child workflow failed',
-      })
+      try {
+        ;(handler as any).mapChildOutputToParent(childResult, 'child-id', 'Child Workflow', 100)
+      } catch (error: any) {
+        expect(error.childTraceSpans).toEqual([])
+      }
     })
 
     it('should handle nested response structures', () => {
@@ -239,6 +236,7 @@ describe('WorkflowBlockHandler', () => {
 
       expect(result).toEqual({
         success: true,
+        childWorkflowId: 'child-id',
         childWorkflowName: 'Child Workflow',
         result: { nested: 'data' },
         childTraceSpans: [],

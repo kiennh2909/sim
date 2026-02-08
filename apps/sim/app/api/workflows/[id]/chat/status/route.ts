@@ -1,8 +1,8 @@
 import { db } from '@sim/db'
 import { chat } from '@sim/db/schema'
+import { createLogger } from '@sim/logger'
 import { eq } from 'drizzle-orm'
-import { createLogger } from '@/lib/logs/console/logger'
-import { generateRequestId } from '@/lib/utils'
+import { generateRequestId } from '@/lib/core/utils/request'
 import { createErrorResponse, createSuccessResponse } from '@/app/api/workflows/utils'
 
 const logger = createLogger('ChatStatusAPI')
@@ -22,6 +22,13 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       .select({
         id: chat.id,
         identifier: chat.identifier,
+        title: chat.title,
+        description: chat.description,
+        customizations: chat.customizations,
+        authType: chat.authType,
+        allowedEmails: chat.allowedEmails,
+        outputConfigs: chat.outputConfigs,
+        password: chat.password,
         isActive: chat.isActive,
       })
       .from(chat)
@@ -34,6 +41,13 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
         ? {
             id: deploymentResults[0].id,
             identifier: deploymentResults[0].identifier,
+            title: deploymentResults[0].title,
+            description: deploymentResults[0].description,
+            customizations: deploymentResults[0].customizations,
+            authType: deploymentResults[0].authType,
+            allowedEmails: deploymentResults[0].allowedEmails,
+            outputConfigs: deploymentResults[0].outputConfigs,
+            hasPassword: Boolean(deploymentResults[0].password),
           }
         : null
 

@@ -1,5 +1,5 @@
+import { createLogger } from '@sim/logger'
 import { AGENT_MODE_SYSTEM_PROMPT } from '@/lib/copilot/prompts'
-import { createLogger } from '@/lib/logs/console/logger'
 import { getProviderDefaultModel } from '@/providers/models'
 import type { ProviderId } from '@/providers/types'
 
@@ -12,6 +12,7 @@ const VALID_PROVIDER_IDS: readonly ProviderId[] = [
   'openai',
   'azure-openai',
   'anthropic',
+  'azure-anthropic',
   'google',
   'deepseek',
   'xai',

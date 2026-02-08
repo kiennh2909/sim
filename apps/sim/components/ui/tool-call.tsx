@@ -2,11 +2,12 @@
 
 import { useState } from 'react'
 import { CheckCircle, ChevronDown, ChevronRight, Loader2, Settings, XCircle } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
+import { Badge } from '@/components/emcn'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import type { ToolCallGroup, ToolCallState } from '@/lib/copilot/types'
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/core/utils/cn'
+import { formatDuration } from '@/lib/core/utils/formatting'
 
 interface ToolCallProps {
   toolCall: ToolCallState
@@ -219,17 +220,11 @@ export function ToolCallExecution({ toolCall, isCompact = false }: ToolCallProps
   )
 }
 
-// Completion State Component
 export function ToolCallCompletion({ toolCall, isCompact = false }: ToolCallProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const isSuccess = toolCall.state === 'completed'
   const isError = toolCall.state === 'error'
   const isAborted = toolCall.state === 'aborted'
-
-  const formatDuration = (duration?: number) => {
-    if (!duration) return ''
-    return duration < 1000 ? `${duration}ms` : `${(duration / 1000).toFixed(1)}s`
-  }
 
   return (
     <div
@@ -280,7 +275,7 @@ export function ToolCallCompletion({ toolCall, isCompact = false }: ToolCallProp
                   )}
                   style={{ fontSize: '0.625rem' }}
                 >
-                  {formatDuration(toolCall.duration)}
+                  {toolCall.duration ? formatDuration(toolCall.duration, { precision: 1 }) : ''}
                 </Badge>
               )}
             </div>
@@ -390,7 +385,7 @@ export function ToolCallGroupComponent({ group, isCompact = false }: ToolCallGro
                 {isAllCompleted ? 'Completed' : 'In Progress'} ({completedCount}/{totalCount})
               </span>
               {hasErrors && (
-                <Badge variant='destructive' className='shrink-0 text-xs'>
+                <Badge variant='red' className='shrink-0 text-xs'>
                   Errors
                 </Badge>
               )}

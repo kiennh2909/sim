@@ -10,7 +10,6 @@ export const jiraUpdateTool: ToolConfig<JiraUpdateParams, JiraUpdateResponse> = 
   oauth: {
     required: true,
     provider: 'jira',
-    additionalScopes: ['read:jira-user', 'write:jira-work', 'write:issue:jira', 'read:jira-work'],
   },
 
   params: {
@@ -29,15 +28,14 @@ export const jiraUpdateTool: ToolConfig<JiraUpdateParams, JiraUpdateResponse> = 
     projectId: {
       type: 'string',
       required: false,
-      visibility: 'user-only',
-      description:
-        'Jira project ID to update issues in. If not provided, all issues will be retrieved.',
+      visibility: 'user-or-llm',
+      description: 'Jira project key (e.g., PROJ). Optional when updating a single issue.',
     },
     issueKey: {
       type: 'string',
       required: true,
-      visibility: 'user-only',
-      description: 'Jira issue key to update',
+      visibility: 'user-or-llm',
+      description: 'Jira issue key to update (e.g., PROJ-123)',
     },
     summary: {
       type: 'string',
@@ -72,7 +70,7 @@ export const jiraUpdateTool: ToolConfig<JiraUpdateParams, JiraUpdateResponse> = 
     cloudId: {
       type: 'string',
       required: false,
-      visibility: 'user-only',
+      visibility: 'hidden',
       description:
         'Jira Cloud ID for the instance. If not provided, it will be fetched using the domain.',
     },
@@ -137,14 +135,8 @@ export const jiraUpdateTool: ToolConfig<JiraUpdateParams, JiraUpdateResponse> = 
   },
 
   outputs: {
-    success: {
-      type: 'boolean',
-      description: 'Operation success status',
-    },
-    output: {
-      type: 'object',
-      description:
-        'Updated Jira issue details with timestamp, issue key, summary, and success status',
-    },
+    ts: { type: 'string', description: 'Timestamp of the operation' },
+    issueKey: { type: 'string', description: 'Updated issue key (e.g., PROJ-123)' },
+    summary: { type: 'string', description: 'Issue summary after update' },
   },
 }

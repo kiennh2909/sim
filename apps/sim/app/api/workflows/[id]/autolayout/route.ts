@@ -1,13 +1,18 @@
+import { createLogger } from '@sim/logger'
 import { type NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getSession } from '@/lib/auth'
-import { createLogger } from '@/lib/logs/console/logger'
-import { generateRequestId } from '@/lib/utils'
+import { generateRequestId } from '@/lib/core/utils/request'
 import { applyAutoLayout } from '@/lib/workflows/autolayout'
+import {
+  DEFAULT_HORIZONTAL_SPACING,
+  DEFAULT_LAYOUT_PADDING,
+  DEFAULT_VERTICAL_SPACING,
+} from '@/lib/workflows/autolayout/constants'
 import {
   loadWorkflowFromNormalizedTables,
   type NormalizedWorkflowData,
-} from '@/lib/workflows/db-helpers'
+} from '@/lib/workflows/persistence/utils'
 import { getWorkflowAccessContext } from '@/lib/workflows/utils'
 
 export const dynamic = 'force-dynamic'
@@ -15,29 +20,22 @@ export const dynamic = 'force-dynamic'
 const logger = createLogger('AutoLayoutAPI')
 
 const AutoLayoutRequestSchema = z.object({
-  strategy: z
-    .enum(['smart', 'hierarchical', 'layered', 'force-directed'])
-    .optional()
-    .default('smart'),
-  direction: z.enum(['horizontal', 'vertical', 'auto']).optional().default('auto'),
   spacing: z
     .object({
-      horizontal: z.number().min(100).max(1000).optional().default(400),
-      vertical: z.number().min(50).max(500).optional().default(200),
-      layer: z.number().min(200).max(1200).optional().default(600),
+      horizontal: z.number().min(100).max(1000).optional(),
+      vertical: z.number().min(50).max(500).optional(),
     })
     .optional()
     .default({}),
   alignment: z.enum(['start', 'center', 'end']).optional().default('center'),
   padding: z
     .object({
-      x: z.number().min(50).max(500).optional().default(200),
-      y: z.number().min(50).max(500).optional().default(200),
+      x: z.number().min(50).max(500).optional(),
+      y: z.number().min(50).max(500).optional(),
     })
     .optional()
     .default({}),
-  // Optional: if provided, use these blocks instead of loading from DB
-  // This allows using blocks with live measurements from the UI
+  gridSize: z.number().min(0).max(50).optional(),
   blocks: z.record(z.any()).optional(),
   edges: z.array(z.any()).optional(),
   loops: z.record(z.any()).optional(),
@@ -54,7 +52,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const { id: workflowId } = await params
 
   try {
-    // Get the session
     const session = await getSession()
     if (!session?.user?.id) {
       logger.warn(`[${requestId}] Unauthorized autolayout attempt for workflow ${workflowId}`)
@@ -63,17 +60,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const userId = session.user.id
 
-    // Parse request body
     const body = await request.json()
     const layoutOptions = AutoLayoutRequestSchema.parse(body)
 
     logger.info(`[${requestId}] Processing autolayout request for workflow ${workflowId}`, {
-      strategy: layoutOptions.strategy,
-      direction: layoutOptions.direction,
       userId,
     })
 
-    // Fetch the workflow to check ownership/access
     const accessContext = await getWorkflowAccessContext(workflowId, userId)
     const workflowData = accessContext?.workflow
 
@@ -82,7 +75,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json({ error: 'Workflow not found' }, { status: 404 })
     }
 
-    // Check if user has permission to update this workflow
     const canUpdate =
       accessContext?.isOwner ||
       (workflowData.workspaceId
@@ -97,8 +89,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 
-    // Use provided blocks/edges if available (with live measurements from UI),
-    // otherwise load from database
     let currentWorkflowData: NormalizedWorkflowData | null
 
     if (layoutOptions.blocks && layoutOptions.edges) {
@@ -121,20 +111,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
 
     const autoLayoutOptions = {
-      horizontalSpacing: layoutOptions.spacing?.horizontal || 550,
-      verticalSpacing: layoutOptions.spacing?.vertical || 200,
+      horizontalSpacing: layoutOptions.spacing?.horizontal ?? DEFAULT_HORIZONTAL_SPACING,
+      verticalSpacing: layoutOptions.spacing?.vertical ?? DEFAULT_VERTICAL_SPACING,
       padding: {
-        x: layoutOptions.padding?.x || 150,
-        y: layoutOptions.padding?.y || 150,
+        x: layoutOptions.padding?.x ?? DEFAULT_LAYOUT_PADDING.x,
+        y: layoutOptions.padding?.y ?? DEFAULT_LAYOUT_PADDING.y,
       },
       alignment: layoutOptions.alignment,
+      gridSize: layoutOptions.gridSize,
     }
 
     const layoutResult = applyAutoLayout(
       currentWorkflowData.blocks,
       currentWorkflowData.edges,
-      currentWorkflowData.loops || {},
-      currentWorkflowData.parallels || {},
       autoLayoutOptions
     )
 
@@ -156,7 +145,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     logger.info(`[${requestId}] Autolayout completed successfully in ${elapsed}ms`, {
       blockCount,
-      strategy: layoutOptions.strategy,
       workflowId,
     })
 
@@ -164,8 +152,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       success: true,
       message: `Autolayout applied successfully to ${blockCount} blocks`,
       data: {
-        strategy: layoutOptions.strategy,
-        direction: layoutOptions.direction,
         blockCount,
         elapsed: `${elapsed}ms`,
         layoutedBlocks: layoutResult.blocks,

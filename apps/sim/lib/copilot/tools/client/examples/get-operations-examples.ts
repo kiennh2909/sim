@@ -29,6 +29,27 @@ export class GetOperationsExamplesClientTool extends BaseClientTool {
       },
     },
     interrupt: undefined,
+    getDynamicText: (params, state) => {
+      if (params?.query && typeof params.query === 'string') {
+        const query = params.query
+
+        switch (state) {
+          case ClientToolCallState.success:
+            return `Designed ${query}`
+          case ClientToolCallState.executing:
+          case ClientToolCallState.generating:
+          case ClientToolCallState.pending:
+            return `Designing ${query}`
+          case ClientToolCallState.error:
+            return `Failed to design ${query}`
+          case ClientToolCallState.aborted:
+            return `Aborted designing ${query}`
+          case ClientToolCallState.rejected:
+            return `Skipped designing ${query}`
+        }
+      }
+      return undefined
+    },
   }
 
   async execute(): Promise<void> {

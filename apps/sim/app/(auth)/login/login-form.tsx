@@ -1,10 +1,10 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { createLogger } from '@sim/logger'
 import { Eye, EyeOff } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
@@ -14,15 +14,17 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { client } from '@/lib/auth-client'
-import { quickValidateEmail } from '@/lib/email/validation'
-import { env, isFalsy, isTruthy } from '@/lib/env'
-import { createLogger } from '@/lib/logs/console/logger'
-import { cn } from '@/lib/utils'
+import { client } from '@/lib/auth/auth-client'
+import { getEnv, isFalsy, isTruthy } from '@/lib/core/config/env'
+import { cn } from '@/lib/core/utils/cn'
+import { getBaseUrl } from '@/lib/core/utils/urls'
+import { quickValidateEmail } from '@/lib/messaging/email/validation'
+import { inter } from '@/app/_styles/fonts/inter/inter'
+import { soehne } from '@/app/_styles/fonts/soehne/soehne'
+import { BrandedButton } from '@/app/(auth)/components/branded-button'
 import { SocialLoginButtons } from '@/app/(auth)/components/social-login-buttons'
 import { SSOLoginButton } from '@/app/(auth)/components/sso-login-button'
-import { inter } from '@/app/fonts/inter'
-import { soehne } from '@/app/fonts/soehne/soehne'
+import { useBrandedButtonClass } from '@/hooks/use-branded-button-class'
 
 const logger = createLogger('LoginForm')
 
@@ -104,7 +106,7 @@ export default function LoginPage({
   const [password, setPassword] = useState('')
   const [passwordErrors, setPasswordErrors] = useState<string[]>([])
   const [showValidationError, setShowValidationError] = useState(false)
-  const [buttonClass, setButtonClass] = useState('auth-button-gradient')
+  const buttonClass = useBrandedButtonClass()
 
   const [callbackUrl, setCallbackUrl] = useState('/workspace')
   const [isInviteFlow, setIsInviteFlow] = useState(false)
@@ -120,6 +122,7 @@ export default function LoginPage({
   const [email, setEmail] = useState('')
   const [emailErrors, setEmailErrors] = useState<string[]>([])
   const [showEmailValidationError, setShowEmailValidationError] = useState(false)
+  const [resetSuccessMessage, setResetSuccessMessage] = useState<string | null>(null)
 
   useEffect(() => {
     setMounted(true)
@@ -136,31 +139,11 @@ export default function LoginPage({
 
       const inviteFlow = searchParams.get('invite_flow') === 'true'
       setIsInviteFlow(inviteFlow)
-    }
 
-    const checkCustomBrand = () => {
-      const computedStyle = getComputedStyle(document.documentElement)
-      const brandAccent = computedStyle.getPropertyValue('--brand-accent-hex').trim()
-
-      if (brandAccent && brandAccent !== '#6f3dfa') {
-        setButtonClass('auth-button-custom')
-      } else {
-        setButtonClass('auth-button-gradient')
+      const resetSuccess = searchParams.get('resetSuccess') === 'true'
+      if (resetSuccess) {
+        setResetSuccessMessage('Password reset successful. Please sign in with your new password.')
       }
-    }
-
-    checkCustomBrand()
-
-    window.addEventListener('resize', checkCustomBrand)
-    const observer = new MutationObserver(checkCustomBrand)
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['style', 'class'],
-    })
-
-    return () => {
-      window.removeEventListener('resize', checkCustomBrand)
-      observer.disconnect()
     }
   }, [searchParams])
 
@@ -199,6 +182,13 @@ export default function LoginPage({
     e.preventDefault()
     setIsLoading(true)
 
+    const redirectToVerify = (emailToVerify: string) => {
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('verificationEmail', emailToVerify)
+      }
+      router.push('/verify')
+    }
+
     const formData = new FormData(e.currentTarget)
     const emailRaw = formData.get('email') as string
     const email = emailRaw.trim().toLowerCase()
@@ -218,6 +208,7 @@ export default function LoginPage({
 
     try {
       const safeCallbackUrl = validateCallbackUrl(callbackUrl) ? callbackUrl : '/workspace'
+      let errorHandled = false
 
       const result = await client.signIn.email(
         {
@@ -227,12 +218,17 @@ export default function LoginPage({
         },
         {
           onError: (ctx) => {
-            console.error('Login error:', ctx.error)
-            const errorMessage: string[] = ['Invalid email or password']
+            logger.error('Login error:', ctx.error)
 
             if (ctx.error.code?.includes('EMAIL_NOT_VERIFIED')) {
+              errorHandled = true
+              redirectToVerify(email)
               return
             }
+
+            errorHandled = true
+            const errorMessage: string[] = ['Invalid email or password']
+
             if (
               ctx.error.code?.includes('BAD_REQUEST') ||
               ctx.error.message?.includes('Email and password sign in is not enabled')
@@ -268,6 +264,7 @@ export default function LoginPage({
               errorMessage.push('Too many requests. Please wait a moment before trying again.')
             }
 
+            setResetSuccessMessage(null)
             setPasswordErrors(errorMessage)
             setShowValidationError(true)
           },
@@ -275,19 +272,29 @@ export default function LoginPage({
       )
 
       if (!result || result.error) {
+        // Show error if not already handled by onError callback
+        if (!errorHandled) {
+          setResetSuccessMessage(null)
+          const errorMessage = result?.error?.message || 'Login failed. Please try again.'
+          setPasswordErrors([errorMessage])
+          setShowValidationError(true)
+        }
         setIsLoading(false)
         return
       }
+
+      // Clear reset success message on successful login
+      setResetSuccessMessage(null)
+
+      // Explicit redirect fallback if better-auth doesn't redirect
+      router.push(safeCallbackUrl)
     } catch (err: any) {
       if (err.message?.includes('not verified') || err.code?.includes('EMAIL_NOT_VERIFIED')) {
-        if (typeof window !== 'undefined') {
-          sessionStorage.setItem('verificationEmail', email)
-        }
-        router.push('/verify')
+        redirectToVerify(email)
         return
       }
 
-      console.error('Uncaught login error:', err)
+      logger.error('Uncaught login error:', err)
     } finally {
       setIsLoading(false)
     }
@@ -322,7 +329,7 @@ export default function LoginPage({
         },
         body: JSON.stringify({
           email: forgotPasswordEmail,
-          redirectTo: `${window.location.origin}/reset-password`,
+          redirectTo: `${getBaseUrl()}/reset-password`,
         }),
       })
 
@@ -367,8 +374,8 @@ export default function LoginPage({
     }
   }
 
-  const ssoEnabled = isTruthy(env.NEXT_PUBLIC_SSO_ENABLED)
-  const emailEnabled = !isFalsy(env.NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED)
+  const ssoEnabled = isTruthy(getEnv('NEXT_PUBLIC_SSO_ENABLED'))
+  const emailEnabled = !isFalsy(getEnv('NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED'))
   const hasSocial = githubAvailable || googleAvailable
   const hasOnlySSO = ssoEnabled && !emailEnabled && !hasSocial
   const showTopSSO = hasOnlySSO
@@ -397,8 +404,15 @@ export default function LoginPage({
         </div>
       )}
 
+      {/* Password reset success message */}
+      {resetSuccessMessage && (
+        <div className={`${inter.className} mt-1 space-y-1 text-[#4CAF50] text-xs`}>
+          <p>{resetSuccessMessage}</p>
+        </div>
+      )}
+
       {/* Email/Password Form - show unless explicitly disabled */}
-      {!isFalsy(env.NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED) && (
+      {!isFalsy(getEnv('NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED')) && (
         <form onSubmit={onSubmit} className={`${inter.className} mt-8 space-y-8`}>
           <div className='space-y-6'>
             <div className='space-y-2'>
@@ -479,13 +493,14 @@ export default function LoginPage({
             </div>
           </div>
 
-          <Button
+          <BrandedButton
             type='submit'
-            className={`${buttonClass} flex w-full items-center justify-center gap-2 rounded-[10px] border font-medium text-[15px] text-white transition-all duration-200`}
             disabled={isLoading}
+            loading={isLoading}
+            loadingText='Signing in'
           >
-            {isLoading ? 'Signing in...' : 'Sign in'}
-          </Button>
+            Sign in
+          </BrandedButton>
         </form>
       )}
 
@@ -521,7 +536,7 @@ export default function LoginPage({
       )}
 
       {/* Only show signup link if email/password signup is enabled */}
-      {!isFalsy(env.NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED) && (
+      {!isFalsy(getEnv('NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED')) && (
         <div className={`${inter.className} pt-6 text-center font-light text-[14px]`}>
           <span className='font-normal'>Don't have an account? </span>
           <Link
@@ -559,10 +574,10 @@ export default function LoginPage({
       <Dialog open={forgotPasswordOpen} onOpenChange={setForgotPasswordOpen}>
         <DialogContent className='auth-card auth-card-shadow max-w-[540px] rounded-[10px] border backdrop-blur-sm'>
           <DialogHeader>
-            <DialogTitle className='auth-text-primary font-semibold text-xl tracking-tight'>
+            <DialogTitle className='font-semibold text-black text-xl tracking-tight'>
               Reset Password
             </DialogTitle>
-            <DialogDescription className='auth-text-secondary text-sm'>
+            <DialogDescription className='text-muted-foreground text-sm'>
               Enter your email address and we'll send you a link to reset your password if your
               account exists.
             </DialogDescription>
@@ -596,14 +611,15 @@ export default function LoginPage({
                 <p>{resetStatus.message}</p>
               </div>
             )}
-            <Button
+            <BrandedButton
               type='button'
               onClick={handleForgotPassword}
-              className={`${buttonClass} w-full rounded-[10px] border font-medium text-[15px] text-white transition-all duration-200`}
               disabled={isSubmittingReset}
+              loading={isSubmittingReset}
+              loadingText='Sending'
             >
-              {isSubmittingReset ? 'Sending...' : 'Send Reset Link'}
-            </Button>
+              Send Reset Link
+            </BrandedButton>
           </div>
         </DialogContent>
       </Dialog>

@@ -1,5 +1,16 @@
 import type { Executor } from '@/executor'
+import type { SerializableExecutionState } from '@/executor/execution/types'
 import type { ExecutionContext } from '@/executor/types'
+
+/**
+ * Represents the execution result of a block in the last run
+ */
+export type BlockRunStatus = 'success' | 'error'
+
+/**
+ * Represents the execution result of an edge in the last run
+ */
+export type EdgeRunStatus = 'success' | 'error'
 
 export interface ExecutionState {
   activeBlockIds: Set<string>
@@ -8,7 +19,9 @@ export interface ExecutionState {
   pendingBlocks: string[]
   executor: Executor | null
   debugContext: ExecutionContext | null
-  autoPanDisabled: boolean
+  lastRunPath: Map<string, BlockRunStatus>
+  lastRunEdges: Map<string, EdgeRunStatus>
+  lastExecutionSnapshots: Map<string, SerializableExecutionState>
 }
 
 export interface ExecutionActions {
@@ -18,8 +31,13 @@ export interface ExecutionActions {
   setPendingBlocks: (blockIds: string[]) => void
   setExecutor: (executor: Executor | null) => void
   setDebugContext: (context: ExecutionContext | null) => void
-  setAutoPanDisabled: (disabled: boolean) => void
+  setBlockRunStatus: (blockId: string, status: BlockRunStatus) => void
+  setEdgeRunStatus: (edgeId: string, status: EdgeRunStatus) => void
+  clearRunPath: () => void
   reset: () => void
+  setLastExecutionSnapshot: (workflowId: string, snapshot: SerializableExecutionState) => void
+  getLastExecutionSnapshot: (workflowId: string) => SerializableExecutionState | undefined
+  clearLastExecutionSnapshot: (workflowId: string) => void
 }
 
 export const initialState: ExecutionState = {
@@ -29,9 +47,7 @@ export const initialState: ExecutionState = {
   pendingBlocks: [],
   executor: null,
   debugContext: null,
-  autoPanDisabled: false,
+  lastRunPath: new Map(),
+  lastRunEdges: new Map(),
+  lastExecutionSnapshots: new Map(),
 }
-
-// Types for panning functionality
-export type PanToBlockCallback = (blockId: string) => void
-export type SetPanToBlockCallback = (callback: PanToBlockCallback | null) => void

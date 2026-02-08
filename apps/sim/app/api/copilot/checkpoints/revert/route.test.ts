@@ -3,14 +3,9 @@
  *
  * @vitest-environment node
  */
+import { createMockRequest, mockAuth, mockCryptoUuid, setupCommonApiMocks } from '@sim/testing'
 import { NextRequest } from 'next/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  createMockRequest,
-  mockAuth,
-  mockCryptoUuid,
-  setupCommonApiMocks,
-} from '@/app/api/__test-utils__/utils'
 
 describe('Copilot Checkpoints Revert API Route', () => {
   const mockSelect = vi.fn()
@@ -22,6 +17,13 @@ describe('Copilot Checkpoints Revert API Route', () => {
     vi.resetModules()
     setupCommonApiMocks()
     mockCryptoUuid()
+
+    // Mock getBaseUrl to return localhost for tests
+    vi.doMock('@/lib/core/utils/urls', () => ({
+      getBaseUrl: vi.fn(() => 'http://localhost:3000'),
+      getBaseDomain: vi.fn(() => 'localhost:3000'),
+      getEmailDomain: vi.fn(() => 'localhost:3000'),
+    }))
 
     mockSelect.mockReturnValue({ from: mockFrom })
     mockFrom.mockReturnValue({ where: mockWhere })
